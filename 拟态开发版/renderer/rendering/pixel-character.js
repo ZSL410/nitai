@@ -389,12 +389,12 @@
 
   // ═══════════════════════════════════════════════════════════
   //  MAIN DRAW
-  //  All coordinates from M.Layout.getPetBounds() — no local re-computation.
+  //  All coordinates from M.Layout.getPetBounds() — single source of truth.
+  //  cellSize is now float (petSize/GH), guaranteeing totalH === petSize.
   // ═══════════════════════════════════════════════════════════
 
   function drawPixelCharacter(ctx) {
     const B = M.Layout.getPetBounds();
-    const A = M.Anim;
 
     ctx.imageSmoothingEnabled = false;
 

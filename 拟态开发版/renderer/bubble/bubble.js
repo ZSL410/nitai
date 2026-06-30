@@ -98,17 +98,17 @@
   // ── Position bubble above character mouth (from getPetBounds) ──
 
   function positionBubbleAtMouth(el) {
-    // Use getPetBounds() as single source of truth for mouth position
-    let mouthPos;
+    // Use getPetBounds() as single source of truth
+    // Position bubble ABOVE the character's head top, not over the face
+    let headTop, mouthX;
     if (M.Layout && M.Layout.getPetBounds) {
       const B = M.Layout.getPetBounds();
-      mouthPos = { x: B.mouthX, y: B.mouthY };
+      headTop = B.headTop;
+      mouthX = B.mouthX;
     } else {
       // Fallback (should not normally be reached)
-      mouthPos = M.mouthCanvasPos || {
-        x: M.petCX,
-        y: M.petCY - M.petSize * 0.25
-      };
+      headTop = M.petCY - M.petSize * 0.5;
+      mouthX = M.petCX;
     }
 
     // Styling
@@ -124,9 +124,10 @@
     el.style.left = '50%';
     el.style.transform = 'translateX(-50%)';
 
-    // Vertical: bubble bottom (arrow tip) at MOUTH_GAP px above mouth
+    // Vertical: bubble sits ABOVE the character's head top
+    // The arrow (::after pseudo-element) points down toward the head
     const bubbleH = el.offsetHeight || 40;
-    el.style.top = Math.max(2, mouthPos.y - bubbleH - MOUTH_GAP) + 'px';
+    el.style.top = Math.max(2, headTop - bubbleH - MOUTH_GAP) + 'px';
 
     // Update window size to accommodate the bubble
     M.Layout.updateWindowSizeAndLayout(el.textContent);

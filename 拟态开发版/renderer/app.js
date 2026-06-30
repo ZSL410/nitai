@@ -27,9 +27,19 @@ const APP_VERSION = '1.0.0';
 
   // ── Animation loop ───────────────────────────────────────
   function tick(now) {
+    // ══ STEP 0: Update animation state ONCE per frame ══
+    // tickAnim() advances _smoothBob and bodyScale lerps.
+    // This MUST happen before any getPetBounds() call, preventing
+    // compound-lerp when getPetBounds is called multiple times.
+    if (M.Layout && M.Layout.tickAnim) M.Layout.tickAnim();
+
+    // ══ STEP 1: Update FSM state machine ══
     if (M.FSM) M.FSM.update(now);
+
+    // ══ STEP 2: Update eye tracking (reads getPetBounds, now cached) ══
     if (M._updateEyeTracking) M._updateEyeTracking();
 
+    // ══ STEP 3: Render (reads getPetBounds, now cached) ══
     // Low-power idle mode: frame skipping
     const idleTime = now - (M.lastActivity || now);
     const isIdle = M.FSM && M.FSM.state === 'idle';
@@ -45,7 +55,6 @@ const APP_VERSION = '1.0.0';
     } else {
       // Full speed: draw every frame
       if (M._idleLowPower) {
-        // Just exited low-power mode — reset counter
         M._idleFrameCounter = 0;
       }
       M._idleLowPower = false;

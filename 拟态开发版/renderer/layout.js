@@ -6,7 +6,15 @@
 //  Bubble fits in the overhead region above the pet.
 //  getPetBounds() is the single source of truth for all coordinates.
 //
-//  Formula:
+//  KEY FIX (v1.0.0): cellSize = petSize / GH (float, not rounded).
+//  This ensures totalH === petSize exactly. Previously round(petSize/20)
+//  caused totalH ≠ petSize for sizes 50/110, pushing the character off-centre.
+//
+//  tickAnim() must be called ONCE per frame BEFORE getPetBounds().
+//  This prevents compound-lerp of _smoothBob when getPetBounds
+//  is called from multiple places in the same tick.
+//
+//  Layout formula:
 //    overhead  = measuredH + ARROW_H + GAP
 //    winH      = petSize + 2 × max(overhead, BOTTOM_MARGIN)
 //    petCX = winW/2, petCY = winH/2
@@ -190,82 +198,126 @@
   const TORSO_COLS = { min: 5, max: 10 };
   const TORSO_ROWS = { min: 7, max: 13 };
 
+  // Cached bounds from last tickAnim() call — invalidated each frame
+  let _cachedBounds = null;
+  let _lastTickId = 0;
+  let _tickCounter = 0;
+
+  /**
+   * tickAnim()
+   * Must be called ONCE per animation frame BEFORE any getPetBounds() calls.
+   * Updates smooth animation state (bob lerp, scale lerp).
+   * This is the ONLY place where animation state mutates.
+   */
+  function tickAnim() {
+    const A = M.Anim;
+    if (!A) return;
+
+    _tickCounter++;
+    _cachedBounds = null; // invalidate cache
+
+    // Smooth scale lerp (body size transition)
+    if (A.bodyScale === undefined) A.bodyScale = 1;
+    A.bodyScale += ((A.targetScale || 1) - A.bodyScale) * 0.15;
+
+    // Smooth bob lerp — UPDATED ONCE PER FRAME
+    // (was previously inside getPetBounds(), causing compound-lerp when called multiple times)
+    if (A._smoothBob === undefined) A._smoothBob = 0;
+    A._smoothBob += ((A.bobOffset || 0) - A._smoothBob) * 0.22;
+  }
+
   /**
    * getPetBounds()
-   * Returns ALL coordinate values used by rendering, interaction, and bubble modules.
-   * This is the single source of truth — no other file should compute gx/gy/cellSize independently.
+   * Read-only. Returns ALL coordinate values for rendering, interaction, and bubble modules.
+   * Animation state updates happen in tickAnim() — NOT here.
+   * Cached within a single frame so multiple callers get identical values.
    *
    * @returns {{
    *   centerX: number, centerY: number,  // window centre = pet centre
    *   petSize: number, scale: number, effectiveSize: number,
-   *   cellSize: number,                  // pixels per grid cell
-   *   totalW: number, totalH: number,    // total grid pixel dimensions
+   *   cellSize: number,                  // pixels per grid cell (float — exact division)
+   *   totalW: number, totalH: number,    // total grid pixel dimensions (= petSize)
    *   gx: number, gy: number,            // grid origin (top-left) on canvas
    *   bobY: number,                      // current smooth bob offset
    *   headCX: number, headCY: number,    // head centre on canvas
    *   headTop: number,                   // head top edge Y on canvas
+   *   headBottom: number,                // head bottom edge Y on canvas
    *   headLeft: number, headRight: number,  // head horizontal bounds
    *   mouthX: number, mouthY: number,    // mouth position on canvas
+   *   bodyTop: number, bodyBottom: number,  // torso vertical bounds
    *   gridW: number, gridH: number       // grid dimensions in cells
    * }}
    */
   function getPetBounds() {
-    const petSize = M.petSize;
+    // Return cached if already computed this frame
+    if (_cachedBounds && _cachedBounds._tickId === _tickCounter) {
+      return _cachedBounds;
+    }
+
     const A = M.Anim || {};
 
-    // Scale (for body size transition animation)
+    // ── KEY FIX: cellSize = petSize / GH  (float, NOT rounded) ──
+    // This ensures totalH === petSize exactly, matching the layout formula.
+    // Without this, round(petSize/20) causes totalH ≠ petSize for sizes 50/110,
+    // pushing the character off-centre. Canvas with smoothing disabled renders
+    // fractional pixel coords cleanly.
+    const petSize = M.petSize;
     const scale = (A.bodyScale !== undefined) ? A.bodyScale : 1;
     const effectiveSize = petSize * scale;
+    const cellSize = effectiveSize / GH;
 
-    // Cell size: one grid cell = effectiveSize / 20 rows
-    const cellSize = Math.max(1, Math.round(effectiveSize / GH));
     const totalW = GW * cellSize;
-    const totalH = GH * cellSize;
+    const totalH = effectiveSize;  // exactly petSize*scale = GH*cellSize
+    const bobY = A._smoothBob || 0;
 
-    // Smooth bob lerp (prevents position jumps on state change)
-    if (A._smoothBob === undefined) A._smoothBob = 0;
-    if (A.bobOffset !== undefined) {
-      A._smoothBob += (A.bobOffset - A._smoothBob) * 0.22;
-    }
-    const bobY = A._smoothBob;
-
-    // Grid origin (top-left pixel on canvas)
+    // Grid origin (top-left on canvas) — NO Math.floor
+    // Canvas 2D with smoothing disabled handles sub-pixel coords correctly
     const centerX = M.petCX;
     const centerY = M.petCY;
-    const gx = Math.floor(centerX - totalW / 2);
-    const gy = Math.floor(centerY - totalH / 2 + bobY);
+    const gx = centerX - totalW / 2;
+    const gy = centerY - totalH / 2 + bobY;
 
-    // Head centre on canvas (grid cols 4-11 centre = 7.5, rows 0-6 centre = 3.0)
+    // Head (grid rows 0-6, cols 4-11)
     const tilt = A.headTilt || 0;
     const headCX = gx + (HEAD_CENTER_COL + tilt * 0.5) * cellSize;
     const headCY = gy + HEAD_CENTER_ROW * cellSize;
     const headTop = gy + HEAD_ROWS.min * cellSize;
+    const headBottom = gy + HEAD_ROWS.max * cellSize;
     const headLeft = gx + (HEAD_COLS.min + tilt * 0.5) * cellSize;
     const headRight = gx + (HEAD_COLS.max + tilt * 0.5) * cellSize;
 
-    // Mouth position on canvas (for bubble tail attachment)
+    // Body/torso (grid rows 7-13)
+    const bodyTop = gy + TORSO_ROWS.min * cellSize;
+    const bodyBottom = gy + TORSO_ROWS.max * cellSize;
+
+    // Mouth (grid col 7.5, row 5) — for bubble tail attachment
     const mouthX = gx + (MOUTH_GRID.col + tilt * 0.5) * cellSize;
     const mouthY = gy + MOUTH_GRID.row * cellSize;
 
-    return {
+    _cachedBounds = {
       centerX, centerY,
       petSize, scale, effectiveSize,
       cellSize, totalW, totalH,
       gx, gy, bobY,
-      headCX, headCY, headTop, headLeft, headRight,
+      headCX, headCY, headTop, headBottom, headLeft, headRight,
+      bodyTop, bodyBottom,
       mouthX, mouthY,
       gridW: GW, gridH: GH,
+      _tickId: _tickCounter,  // for cache validation
     };
+
+    return _cachedBounds;
   }
 
   // ── Export ──────────────────────────────────────────────
 
   M.Layout = {
+    tickAnim,               // call once per frame, before any getPetBounds()
+    getPetBounds,            // read-only coordinates, cached within frame
     updateBubbleMetrics,
     measureBubbleSize,
     updateWindowSizeAndLayout,
     applySize,
-    getPetBounds,
     // Grid constants for external use
     GW, GH,
     MOUTH_GRID,
