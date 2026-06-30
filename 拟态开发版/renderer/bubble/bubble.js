@@ -1,9 +1,8 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v2 — Speech Bubble (message queue, mouth positioning)
+//  Mimic v1.0.0 — Speech Bubble (message queue, mouth positioning)
 //
 //  • Messages queued, shown sequentially
-//  • Bubble positioned above character MOUTH (not pet top)
-//  • Large enough gap so the bubble never covers the face
+//  • Bubble positioned above character MOUTH (from getPetBounds())
 //  • Tail arrow points down toward the mouth
 //  • Thought bubble variant
 // ═══════════════════════════════════════════════════════════
@@ -96,13 +95,21 @@
     }, duration);
   }
 
-  // ── Position bubble above character mouth ─────────────────
+  // ── Position bubble above character mouth (from getPetBounds) ──
 
   function positionBubbleAtMouth(el) {
-    const mouthPos = M.mouthCanvasPos || {
-      x: M.petCX,
-      y: M.petCY - M.petSize * 0.25
-    };
+    // Use getPetBounds() as single source of truth for mouth position
+    let mouthPos;
+    if (M.Layout && M.Layout.getPetBounds) {
+      const B = M.Layout.getPetBounds();
+      mouthPos = { x: B.mouthX, y: B.mouthY };
+    } else {
+      // Fallback (should not normally be reached)
+      mouthPos = M.mouthCanvasPos || {
+        x: M.petCX,
+        y: M.petCY - M.petSize * 0.25
+      };
+    }
 
     // Styling
     const metrics = M.bubbleMetrics;
@@ -118,7 +125,6 @@
     el.style.transform = 'translateX(-50%)';
 
     // Vertical: bubble bottom (arrow tip) at MOUTH_GAP px above mouth
-    // Measure the bubble's actual height after styling
     const bubbleH = el.offsetHeight || 40;
     el.style.top = Math.max(2, mouthPos.y - bubbleH - MOUTH_GAP) + 'px';
 
@@ -215,5 +221,5 @@
     positionAtMouth: positionBubbleAtMouth,
   };
 
-  console.log('[bubble v2] message queue + mouth-gap=' + MOUTH_GAP + 'px ready');
+  console.log('[bubble v1.0.0] message queue + mouth-gap=' + MOUTH_GAP + 'px (from getPetBounds)');
 })();

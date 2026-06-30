@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════
 //  Mimic — Global namespace & shared state
-//  Version: v2.1.0
+//  Version: v1.0.0
 //
 //  All modules attach to window.Mimic (aliased as M).
 //  Loading order: this file MUST load first.
@@ -13,7 +13,7 @@
   const http = require('http');
 
   // ── Version ──────────────────────────────────────────────
-  const VERSION = '3.7.1';
+  const VERSION = '1.0.0';
 
   // ── Config loader ────────────────────────────────────────
   let config = { targetDir: '../02_数据输入', backendUrl: 'http://127.0.0.1:5001', apiEnabled: false };
@@ -128,7 +128,7 @@
   };
 
   window.Mimic = M;
-  console.log('[mimic] global namespace initialized v' + VERSION);
+  console.log('[mimic] global namespace initialized v' + VERSION + ' (独立后)');
 
   // ── Keyboard shortcuts ───────────────────────────────────
   window.addEventListener('keydown', (e) => {

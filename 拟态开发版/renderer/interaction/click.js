@@ -1,9 +1,10 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v3.7.1 — Body Part Click Reactions
+//  Mimic v1.0.0 — Body Part Click Reactions
 //
 //  Click head → happy state (bounce + smile) → 1.5s → idle
 //  Click body → surprised state (wide eyes + open mouth) → 1.5s → idle
 //  Double-click → spin + spark particles + 2.5s happy
+//  Hit testing uses M.Layout.getPetBounds() — single source of truth.
 // ═══════════════════════════════════════════════════════════
 
 ;(function () {
@@ -27,12 +28,10 @@
       }
       lastClickTime = now;
 
-      // Determine which body part was clicked
       const part = hitTest(e.offsetX, e.offsetY);
       const A = M.Anim;
 
       if (clickCount >= 2) {
-        // Double-click: spin + happy
         handleDoubleClick(A);
         return;
       }
@@ -45,26 +44,21 @@
           handleBodyClick(A);
           break;
         default:
-          // Clicked elsewhere — gentle boop
           handleBoop(A);
       }
     });
 
-    console.log('[click] body part click reactions registered');
+    console.log('[click v1.0.0] hit-test from getPetBounds()');
   }
 
-  // ── Hit testing ───────────────────────────────────────────
+  // ── Hit testing (uses getPetBounds for single source of truth) ──
 
   function hitTest(canvasX, canvasY) {
-    const cellSize = Math.max(1, Math.round(M.petSize / 20));
-    const totalW = 16 * cellSize;
-    const totalH = 20 * cellSize;
-    const gx = M.petCX - totalW / 2;
-    const gy = M.petCY - totalH / 2 + (M.Anim.bobOffset || 0);
+    const B = M.Layout.getPetBounds();
 
     // Convert canvas coords to grid coords
-    const col = (canvasX - gx) / cellSize;
-    const row = (canvasY - gy) / cellSize;
+    const col = (canvasX - B.gx) / B.cellSize;
+    const row = (canvasY - B.gy) / B.cellSize;
 
     // Head region: cols 4-11, rows 0-6
     if (col >= 4 && col <= 11 && row >= 0 && row <= 6) return 'head';

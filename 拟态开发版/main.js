@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════
 //  Mimic — Desktop Pet 主进程入口
-//  Version: v2.5.0 (Phase 3 — passthrough + particles + auto music detect)
+//  Version: v1.0.0 — independent repo, coordinate system refactored
 //
 //  Boot sequence: config → window → tray → IPC → global shortcuts
 //  All sub-modules live in main/ directory.

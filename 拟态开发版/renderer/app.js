@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v3.7.1 — Desktop Pet Bootstrapper
+//  Mimic v1.0.0 — Desktop Pet Bootstrapper
 //  Articulated pixel character, eating animation, eye tracking,
 //  message queue, body-part click reactions, chat dialog,
 //  low-power idle mode (15fps after 30s inactivity).
+//  All coordinates from M.Layout.getPetBounds().
 // ═══════════════════════════════════════════════════════════
 
-const APP_VERSION = '3.7.1';
+const APP_VERSION = '1.0.0';
 
 ;(function () {
   const M = window.Mimic;
@@ -61,6 +62,7 @@ const APP_VERSION = '3.7.1';
     console.log('  Character: articulated pixel humanoid (16×20 grid)');
     console.log('  Features: eating anim | eye tracking | click react | chat | yawn');
     console.log('  States: idle | working | happy | surprised | alert');
+    console.log('  Coords: M.Layout.getPetBounds() — single source of truth');
     console.log('  Low-power: 15fps after 30s idle | click-to-react | eye-follow');
     console.log('  Target dir:', M.TARGET);
     console.log('  Backend API:', M.config.apiEnabled ? M.config.backendUrl : 'disabled');

@@ -1,6 +1,8 @@
-# PROJECT_STATUS.md — 拟态 (Mimic) Desktop Pet v3.7.1
+# PROJECT_STATUS.md — 拟态 (Mimic) Desktop Pet v1.0.0
 
-> 最后更新：2026-06-27 | 版本：**v3.7.1** — Phase 1 交互体验优化版
+> 最后更新：2026-06-30 | 版本：**v1.0.0** — 独立仓库首发 + 坐标系统重构版
+> 
+> 晓风期内最后版本：v3.7.1（2026-06-27）。独立后版本号重置为 v1.0.0。
 
 ## 项目定位
 
@@ -104,6 +106,18 @@ cd /mnt/d/xiaofeng_agent/拟态开发版 && npm run start:wsl  # WSL2
 ```
 
 ## 变更日志
+
+### v1.0.0 (2026-06-30) — 独立仓库首发 + 坐标系统重构 🔧
+- 🏗️ **独立仓库**：从晓风主项目分离为 `D:\nitai\` 独立 Git 仓库
+- 📐 **坐标系统重构**：
+  - `layout.js` 新增 `getPetBounds()` — 所有坐标的单一真相来源
+  - `pixel-character.js` 不再内部计算 cellSize/gx/gy，统一使用 `getPetBounds()`
+  - `eye-tracking.js` 头部中心从 `getPetBounds()` 获取
+  - `click.js` 命中测试使用 `getPetBounds()`（修复了 `bobOffset` vs `_smoothBob` 不一致的 bug）
+  - `bubble.js` 嘴部位置优先从 `getPetBounds()` 获取
+  - 消除了 4 处独立的 gx/gy/cellSize 重复计算
+- 📝 **版本号重置**：v3.7.1 → v1.0.0
+- 📚 **文档体系**：S6 结构 (`docs/`)
 
 ### v3.7.1 (2026-06-27) — Phase 1 交互体验优化
 - 🎯 **眼球跟随鼠标增强**：`interaction/eye-tracking.js` 重写

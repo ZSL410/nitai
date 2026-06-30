@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v2.1 — Window Layout Engine
+//  Mimic v1.0.0 — Window Layout Engine
 //
 //  Dynamic window sizing & positioning.
 //  Guarantees: pet is ALWAYS centred at (winW/2, winH/2).
 //  Bubble fits in the overhead region above the pet.
+//  getPetBounds() is the single source of truth for all coordinates.
 //
-//  Formula (v1.2.0):
+//  Formula:
 //    overhead  = measuredH + ARROW_H + GAP
 //    winH      = petSize + 2 × max(overhead, BOTTOM_MARGIN)
 //    petCX = winW/2, petCY = winH/2
@@ -177,6 +178,86 @@
     M.eyeOpen = true;
   }
 
+  // ── Pet bounds (single source of truth for all coordinates) ──
+
+  // Grid constants
+  const GW = 16, GH = 20;
+  const MOUTH_GRID = { col: 7.5, row: 5 };
+  const HEAD_COLS = { min: 4, max: 11 };
+  const HEAD_ROWS = { min: 0, max: 6 };
+  const HEAD_CENTER_COL = (HEAD_COLS.min + HEAD_COLS.max) / 2;  // 7.5
+  const HEAD_CENTER_ROW = (HEAD_ROWS.min + HEAD_ROWS.max) / 2;  // 3.0
+  const TORSO_COLS = { min: 5, max: 10 };
+  const TORSO_ROWS = { min: 7, max: 13 };
+
+  /**
+   * getPetBounds()
+   * Returns ALL coordinate values used by rendering, interaction, and bubble modules.
+   * This is the single source of truth — no other file should compute gx/gy/cellSize independently.
+   *
+   * @returns {{
+   *   centerX: number, centerY: number,  // window centre = pet centre
+   *   petSize: number, scale: number, effectiveSize: number,
+   *   cellSize: number,                  // pixels per grid cell
+   *   totalW: number, totalH: number,    // total grid pixel dimensions
+   *   gx: number, gy: number,            // grid origin (top-left) on canvas
+   *   bobY: number,                      // current smooth bob offset
+   *   headCX: number, headCY: number,    // head centre on canvas
+   *   headTop: number,                   // head top edge Y on canvas
+   *   headLeft: number, headRight: number,  // head horizontal bounds
+   *   mouthX: number, mouthY: number,    // mouth position on canvas
+   *   gridW: number, gridH: number       // grid dimensions in cells
+   * }}
+   */
+  function getPetBounds() {
+    const petSize = M.petSize;
+    const A = M.Anim || {};
+
+    // Scale (for body size transition animation)
+    const scale = (A.bodyScale !== undefined) ? A.bodyScale : 1;
+    const effectiveSize = petSize * scale;
+
+    // Cell size: one grid cell = effectiveSize / 20 rows
+    const cellSize = Math.max(1, Math.round(effectiveSize / GH));
+    const totalW = GW * cellSize;
+    const totalH = GH * cellSize;
+
+    // Smooth bob lerp (prevents position jumps on state change)
+    if (A._smoothBob === undefined) A._smoothBob = 0;
+    if (A.bobOffset !== undefined) {
+      A._smoothBob += (A.bobOffset - A._smoothBob) * 0.22;
+    }
+    const bobY = A._smoothBob;
+
+    // Grid origin (top-left pixel on canvas)
+    const centerX = M.petCX;
+    const centerY = M.petCY;
+    const gx = Math.floor(centerX - totalW / 2);
+    const gy = Math.floor(centerY - totalH / 2 + bobY);
+
+    // Head centre on canvas (grid cols 4-11 centre = 7.5, rows 0-6 centre = 3.0)
+    const tilt = A.headTilt || 0;
+    const headCX = gx + (HEAD_CENTER_COL + tilt * 0.5) * cellSize;
+    const headCY = gy + HEAD_CENTER_ROW * cellSize;
+    const headTop = gy + HEAD_ROWS.min * cellSize;
+    const headLeft = gx + (HEAD_COLS.min + tilt * 0.5) * cellSize;
+    const headRight = gx + (HEAD_COLS.max + tilt * 0.5) * cellSize;
+
+    // Mouth position on canvas (for bubble tail attachment)
+    const mouthX = gx + (MOUTH_GRID.col + tilt * 0.5) * cellSize;
+    const mouthY = gy + MOUTH_GRID.row * cellSize;
+
+    return {
+      centerX, centerY,
+      petSize, scale, effectiveSize,
+      cellSize, totalW, totalH,
+      gx, gy, bobY,
+      headCX, headCY, headTop, headLeft, headRight,
+      mouthX, mouthY,
+      gridW: GW, gridH: GH,
+    };
+  }
+
   // ── Export ──────────────────────────────────────────────
 
   M.Layout = {
@@ -184,7 +265,13 @@
     measureBubbleSize,
     updateWindowSizeAndLayout,
     applySize,
+    getPetBounds,
+    // Grid constants for external use
+    GW, GH,
+    MOUTH_GRID,
+    HEAD_COLS, HEAD_ROWS,
+    TORSO_COLS, TORSO_ROWS,
   };
 
-  console.log('[layout] module initialized');
+  console.log('[layout v1.0.0] module initialized + getPetBounds() coordinate hub');
 })();

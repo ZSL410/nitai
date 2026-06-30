@@ -1,17 +1,15 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v2.0 — Pixel Art Character with Articulated Limbs
+//  Mimic v1.0.0 — Pixel Art Character with Articulated Limbs
 //
 //  16×20 grid. Separable head/torso/arms/legs.
 //  Arm poses: rest | wave | reach | eat | point
 //  Leg poses:  stand | sit | jump
 //  Eye tracking with visible pupil shift, smooth bob lerp.
-//  Mouth position exported as M.mouthCanvasPos for bubble tail.
+//  All coordinates sourced from M.Layout.getPetBounds().
 // ═══════════════════════════════════════════════════════════
 
 ;(function () {
   const M = window.Mimic;
-
-  const GW = 16, GH = 20;
 
   // ── Palette ──────────────────────────────────────────────
   const C = {
@@ -67,8 +65,7 @@
     rightFoot:     [9,10,11].flatMap(c => [19].map(r => [c,r])),
   };
 
-  // Mouth centre (grid coords) — for bubble tail attachment
-  const MOUTH_GRID = { col: 7.5, row: 5 };
+  // Mouth grid coords referenced from M.Layout.MOUTH_GRID
 
   // ═══════════════════════════════════════════════════════════
   //  ANIMATION STATE  (modified by FSM handlers)
@@ -391,50 +388,31 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  MAIN DRAW  (with smooth bob lerp to prevent position jumps)
+  //  MAIN DRAW
+  //  All coordinates from M.Layout.getPetBounds() — no local re-computation.
   // ═══════════════════════════════════════════════════════════
 
-  function drawPixelCharacter(ctx, centerX, centerY) {
-    const petSize = M.petSize;
+  function drawPixelCharacter(ctx) {
+    const B = M.Layout.getPetBounds();
     const A = M.Anim;
-
-    // Smooth scale
-    A.bodyScale += ((A.targetScale || 1) - A.bodyScale) * 0.15;
-    const scale = A.bodyScale;
-    const effectiveSize = petSize * scale;
-
-    const cellSize = Math.max(2, Math.round(effectiveSize / GH));
-    const totalW = GW * cellSize;
-    const totalH = GH * cellSize;
-
-    // ── Smooth bob lerp (prevents position jumps on state change) ──
-    if (A._smoothBob === undefined) A._smoothBob = 0;
-    A._smoothBob += (A.bobOffset - A._smoothBob) * 0.22;
-    const bob = A._smoothBob;
-
-    const gx = Math.floor(centerX - totalW / 2);
-    const gy = Math.floor(centerY - totalH / 2 + bob);
 
     ctx.imageSmoothingEnabled = false;
 
     const expr = M.FSM ? M.FSM.getExpression() : M.EXPRESSIONS.neutral;
 
-    drawBody(ctx, cellSize, gx, gy);
-    drawFace(ctx, expr, cellSize, gx, gy);
-    drawHeadphones(ctx, cellSize, gx, gy);  // 🎧 listening state
-    // Unified particles (v2.1): legacy eat particles + new effects
+    drawBody(ctx, B.cellSize, B.gx, B.gy);
+    drawFace(ctx, expr, B.cellSize, B.gx, B.gy);
+    drawHeadphones(ctx, B.cellSize, B.gx, B.gy);
+
+    // Unified particles
     if (M.Particles && M.Particles.count() > 0) {
-      M.Particles.updateAndDraw(ctx, cellSize, gx, gy);
+      M.Particles.updateAndDraw(ctx, B.cellSize, B.gx, B.gy);
     } else if (particles.length > 0) {
-      updateParticles(ctx, cellSize, gx, gy);
+      updateParticles(ctx, B.cellSize, B.gx, B.gy);
     }
 
     // ── Export mouth position (canvas px) for bubble attachment ──
-    const tilt = A.headTilt || 0;
-    M.mouthCanvasPos = {
-      x: gx + (MOUTH_GRID.col + tilt * 0.5) * cellSize,
-      y: gy + MOUTH_GRID.row * cellSize,
-    };
+    M.mouthCanvasPos = { x: B.mouthX, y: B.mouthY };
   }
 
   function draw() {
@@ -442,7 +420,7 @@
     if (!canvas || !ctx) return;
     ctx.clearRect(0, 0, M.winW, M.winH);
     ctx.imageSmoothingEnabled = false;
-    drawPixelCharacter(ctx, M.petCX, M.petCY);
+    drawPixelCharacter(ctx);
   }
 
   function burstEatParticles(count) {
@@ -463,5 +441,5 @@
   M.Rendering.spawnEatParticles = burstEatParticles;
   M.Rendering.spawnParticles = spawnEatParticles;
 
-  console.log('[pixel-character v2] eye tracking (block shift), smooth bob lerp active');
+  console.log('[pixel-character v1.0.0] coords from getPetBounds(), smooth bob lerp active');
 })();
