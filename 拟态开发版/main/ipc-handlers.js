@@ -1,17 +1,16 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v2.1 — IPC Handlers
+//  Nitai v2.0 — IPC Handlers
 //
-//  Registers all IPC channels between renderer and main:
-//    - window-drag        — delta-based window repositioning
-//    - resize-window      — smooth animated resize
-//    - set-pet-size       — track pet size for tray menu
-//    - show-context-menu  — right-click size switching
-//    - get-config         — send config to renderer
-//    - save-position      — persist window position
+//  All IPC channels use flat args for type safety.
+//  Added: move-window, start-summon, summon-target, summon-cancel
 // ═══════════════════════════════════════════════════════════
 
 const { ipcMain, Menu } = require('electron');
-const { getWindow, quitApp, setPassthrough, isPassthrough } = require('./window');
+const {
+  getPetWindow, moveWindowTo,
+  createSummonOverlay, destroySummonOverlay,
+  setPassthrough, isPassthrough, quitApp,
+} = require('./window');
 const { setLastKnownPetSize, refreshTrayMenu } = require('./tray');
 const { getConfig } = require('./config');
 const { savePosition } = require('./position-store');
@@ -20,178 +19,151 @@ let resizeAnimId = null;
 
 function registerIpcHandlers() {
 
-  // ── Window drag (ultra-defensive, handles all arg formats) ──
-  ipcMain.on('window-drag', (_e, a, b) => {
-    const win = getWindow();
-    if (!win) return;
-
-    // Unpack dx/dy from whatever format the renderer sent
-    let ddx = 0, ddy = 0;
-    if (typeof a === 'number' && typeof b === 'number') {
-      // Flat args: dx, dy
-      ddx = Math.round(a);
-      ddy = Math.round(b);
-    } else if (typeof a === 'number') {
-      ddx = Math.round(a);
-      ddy = 0;
-    } else if (a && typeof a === 'object' && !Array.isArray(a)) {
-      // Object: { dx, dy }
-      ddx = Math.round(Number(a.dx));
-      ddy = Math.round(Number(a.dy));
-    } else if (Array.isArray(a)) {
-      // Array: [dx, dy]
-      ddx = Math.round(Number(a[0]));
-      ddy = Math.round(Number(a[1]));
-    }
-
-    if (isNaN(ddx)) ddx = 0;
-    if (isNaN(ddy)) ddy = 0;
-    if (ddx === 0 && ddy === 0) return;
-
+  // ── Window drag (delta movement, ultra-defensive) ─────
+  ipcMain.on('window-drag', (_e, dx, dy) => {
+    const ndx = Math.round(Number(dx)), ndy = Math.round(Number(dy));
+    if (isNaN(ndx) || isNaN(ndy) || (ndx === 0 && ndy === 0)) return;
+    const win = getPetWindow();
+    if (!win || win.isDestroyed()) return;
     try {
       const [x, y] = win.getPosition();
-      win.setPosition(x + ddx, y + ddy);
+      moveWindowTo(x + ndx, y + ndy);
     } catch (err) {
-      console.error('[main/ipc] window-drag setPosition error:', err.message);
+      console.error('[ipc] window-drag error:', err.message);
     }
   });
 
-  // ── Dynamic window resize (ultra-defensive, animated ease-out) ──
-  ipcMain.on('resize-window', (_e, a, b) => {
-    const win = getWindow();
-    if (!win) return;
+  // ── Window move to absolute screen position (for character walking) ──
+  ipcMain.on('move-window', (_e, x, y) => {
+    const nx = Number(x), ny = Number(y);
+    if (isNaN(nx) || isNaN(ny)) return;
+    moveWindowTo(nx, ny);
+  });
 
-    // Unpack w/h from whatever format
-    let targetW = 0, targetH = 0;
-    if (typeof a === 'number' && typeof b === 'number') {
-      targetW = Math.round(a);
-      targetH = Math.round(b);
-    } else if (typeof a === 'number') {
-      targetW = Math.round(a);
-    } else if (a && typeof a === 'object' && !Array.isArray(a)) {
-      targetW = Math.round(Number(a.w));
-      targetH = Math.round(Number(a.h));
-    } else if (Array.isArray(a)) {
-      targetW = Math.round(Number(a[0]));
-      targetH = Math.round(Number(a[1]));
-    }
-
+  // ── Dynamic window resize (animated ease-out) ─────────
+  ipcMain.on('resize-window', (_e, w, h) => {
+    const targetW = Math.round(Number(w)), targetH = Math.round(Number(h));
     if (isNaN(targetW) || isNaN(targetH) || targetW <= 0 || targetH <= 0) return;
+    const win = getPetWindow();
+    if (!win || win.isDestroyed()) return;
 
-    if (resizeAnimId) {
-      clearInterval(resizeAnimId);
-      resizeAnimId = null;
-    }
+    if (resizeAnimId) { clearInterval(resizeAnimId); resizeAnimId = null; }
 
     try {
       const [curW, curH] = win.getSize();
-
-      // Close enough → snap directly
       if (Math.abs(curW - targetW) < 4 && Math.abs(curH - targetH) < 4) {
         win.setSize(targetW, targetH);
         return;
       }
-
-      // Smooth animate (ease-out cubic over ~8 steps, ~60fps)
-      const STEPS = 8;
-      const INTERVAL = 16;
+      const STEPS = 8, INTERVAL = 16;
       let step = 0;
       const startW = curW, startH = curH;
-
       resizeAnimId = setInterval(() => {
         step++;
         const t = step / STEPS;
         const ease = 1 - Math.pow(1 - t, 3);
-        const newW = Math.round(startW + (targetW - startW) * ease);
-        const newH = Math.round(startH + (targetH - startH) * ease);
-
-        try {
-          win.setSize(newW, newH);
-        } catch (err) {
-          console.error('[main/ipc] resize setSize error:', err.message);
-          clearInterval(resizeAnimId);
-          resizeAnimId = null;
-        }
-
+        win.setSize(Math.round(startW + (targetW - startW) * ease),
+                    Math.round(startH + (targetH - startH) * ease));
         if (step >= STEPS) {
-          clearInterval(resizeAnimId);
-          resizeAnimId = null;
+          clearInterval(resizeAnimId); resizeAnimId = null;
           try { win.setSize(targetW, targetH); } catch (e) {}
         }
       }, INTERVAL);
     } catch (err) {
-      console.error('[main/ipc] resize-window error:', err.message);
+      console.error('[ipc] resize-window error:', err.message);
     }
   });
 
-  // ── Pet size tracking (for tray menu checked state, type-safe) ──
-  ipcMain.on('set-pet-size', (_e, petSize) => {
-    const size = Number(petSize);
-    if (isNaN(size) || size <= 0) return;
-    setLastKnownPetSize(size);
-    refreshTrayMenu(getWindow());
+  // ── Pet size tracking (for tray menu) ─────────────────
+  ipcMain.on('set-pet-size', (_e, size) => {
+    const s = Number(size);
+    if (isNaN(s) || s <= 0) return;
+    setLastKnownPetSize(s);
+    refreshTrayMenu(getPetWindow());
   });
 
-  // ── Right-click context menu (size switching) ────────────
-  ipcMain.on('show-context-menu', (event, currentPetSize, appVersion) => {
-    const makeItem = (label, petSize) => ({
-      label,
-      type: 'radio',
-      checked: currentPetSize === petSize,
+  // ── Right-click context menu ──────────────────────────
+  ipcMain.on('show-context-menu', (event, currentSize, appVersion) => {
+    const makeSizeItem = (label, size) => ({
+      label, type: 'radio',
+      checked: currentSize === size,
       click: () => {
-        setLastKnownPetSize(petSize);
-        event.sender.send('size-changed', petSize);
+        setLastKnownPetSize(size);
+        event.sender.send('size-changed', size);
       },
     });
 
     const passthroughOn = isPassthrough();
 
     const menu = Menu.buildFromTemplate([
-      { label: '拟态 v' + (appVersion || '?.?'), enabled: false },
+      { label: '拟态 v' + (appVersion || '2.0'), enabled: false },
       { type: 'separator' },
-      makeItem('大 (Large)',  110),
-      makeItem('中 (Medium)', 80),
-      makeItem('小 (Small)',  50),
+      makeSizeItem('大 (Large)',  110),
+      makeSizeItem('中 (Medium)', 80),
+      makeSizeItem('小 (Small)',  50),
+      { type: 'separator' },
+      { label: '🔮 召唤到这里', click: () => {
+        createSummonOverlay();
+      }},
+      { label: '🚶 开始闲逛', click: () => {
+        event.sender.send('toggle-wander');
+      }},
       { type: 'separator' },
       { label: '穿透模式 (Click-through)', type: 'checkbox',
         checked: passthroughOn,
         click: () => {
           setPassthrough(!passthroughOn);
-          refreshTrayMenu(getWindow());
+          refreshTrayMenu(getPetWindow());
         }},
       { label: '退出', click: () => { quitApp(); }},
     ]);
-
-    menu.popup({ window: getWindow() });
+    menu.popup({ window: getPetWindow() });
   });
 
-  // ── Config request (sync response) ───────────────────────
+  // ── Config request (sync) ─────────────────────────────
   ipcMain.on('get-config', (event) => {
     event.returnValue = getConfig();
   });
 
-  // ── Save window position ──────────────────────────────────
+  // ── Save window position ──────────────────────────────
   ipcMain.on('save-position', () => {
-    const win = getWindow();
-    if (!win) return;
+    const win = getPetWindow();
+    if (!win || win.isDestroyed()) return;
     const [x, y] = win.getPosition();
     savePosition(x, y);
   });
 
-  // ── Quit app (from keyboard shortcut or menu) ──────────────
-  ipcMain.on('quit-app', () => {
-    console.log('[main/ipc] quit-app requested');
-    quitApp();
+  // ── Summon mode ───────────────────────────────────────
+  ipcMain.on('start-summon', () => { createSummonOverlay(); });
+
+  ipcMain.on('summon-target', (_e, screenX, screenY) => {
+    const nx = Number(screenX), ny = Number(screenY);
+    if (isNaN(nx) || isNaN(ny)) return;
+    destroySummonOverlay();
+    const win = getPetWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('summon-target', nx, ny);
+    }
   });
 
-  // ── Toggle passthrough (click-through) ─────────────────────
+  ipcMain.on('summon-cancel', () => {
+    destroySummonOverlay();
+    const win = getPetWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('summon-cancelled');
+    }
+  });
+
+  // ── Quit ──────────────────────────────────────────────
+  ipcMain.on('quit-app', () => { quitApp(); });
+
+  // ── Toggle passthrough ────────────────────────────────
   ipcMain.on('toggle-passthrough', () => {
-    const next = !isPassthrough();
-    setPassthrough(next);
-    refreshTrayMenu(getWindow());
+    setPassthrough(!isPassthrough());
+    refreshTrayMenu(getPetWindow());
   });
 
-  console.log('[main/ipc] handlers registered');
+  console.log('[ipc] v2.0 handlers registered (walk + summon + wander)');
 }
 
 module.exports = { registerIpcHandlers };

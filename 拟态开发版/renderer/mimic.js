@@ -1,152 +1,168 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic — Global namespace & shared state
-//  Version: v1.0.0
+//  Nitai v2.0 — Global Namespace & World State
 //
-//  All modules attach to window.Mimic (aliased as M).
-//  Loading order: this file MUST load first.
+//  Core paradigm: the character has a WORLD POSITION
+//  (screen coordinates). The window follows the character.
+//  This is the opposite of v1 where the character was
+//  confined to a static window.
+//
+//  World coordinate system:
+//   - worldX, worldY = character CENTER in screen pixels
+//   - Window top-left = (worldX - winW/2, worldY - winH/2)
 // ═══════════════════════════════════════════════════════════
 
 ;(function () {
-  const { ipcRenderer, webUtils } = require('electron');
-  const fs   = require('fs');
+  const { ipcRenderer } = require('electron');
   const path = require('path');
-  const http = require('http');
+  const fs   = require('fs');
 
-  // ── Version ──────────────────────────────────────────────
-  const VERSION = '1.0.0';
+  const VERSION = '2.0.0';
 
-  // ── Config loader ────────────────────────────────────────
-  let config = { targetDir: '../02_数据输入', backendUrl: 'http://127.0.0.1:5001', apiEnabled: false };
+  // ── Config ──────────────────────────────────────────────
+  let config = {
+    targetDir: '../02_数据输入',
+    backendUrl: 'http://127.0.0.1:5001',
+    apiEnabled: false,
+    defaultSize: 80,
+    passthrough: false,
+  };
   try {
-    config = require('../config.json');
-    console.log('[mimic] config loaded:', JSON.stringify(config));
+    config = Object.assign(config, require('../config.json'));
+    console.log('[mimic] config loaded');
   } catch (err) {
-    console.warn('[mimic] config.json not found, using defaults:', err.message);
+    console.warn('[mimic] config.json not found, using defaults');
   }
 
-  // ── Layout constants ─────────────────────────────────────
-  const SIDE_PAD      = 20;
-  const GAP           = 5;
-  const BOTTOM_MARGIN = 10;
-  const ARROW_H       = 6;
-
-  // ── Cross-platform target directory ──────────────────────
   const TARGET = path.resolve(__dirname, '..', config.targetDir);
 
-  // ── Pet size (user-selectable) ───────────────────────────
+  // ── World state (screen coordinates) ────────────────────
+  // These are the SINGLE SOURCE OF TRUTH for character position.
+  // worldX, worldY = character center in screen pixels.
+  // Initialized from window position (sent by main process or estimated).
+  let worldX = 200;
+  let worldY = 200;
   let petSize = 80;
+  let winW = 120;
+  let winH = 120;
 
-  // ── Window & layout state (computed by Layout module) ────
-  let winW  = 120;
-  let winH  = 90;
-  let petCX = 60;
-  let petCY = 45;
+  // ── Last known window screen position (from main process) ──
+  let _winScreenX = 0;
+  let _winScreenY = 0;
 
-  // ── Animation globals ────────────────────────────────────
-  let bobOffset  = 0;
-  let eyeOffsetX = 0;
-  let eyeOffsetY = 0;   // v2.0: eye tracking vertical
-  let eyeOpen    = true;
-  let lastBlink  = performance.now();
-  let bubbleTimer = null;
-  let workTimer   = null;
+  // ── Animation & movement state ──────────────────────────
+  let deltaTime = 0.016;       // seconds since last frame
+  let lastFrameTime = performance.now();
+  let lastActivity = performance.now();
 
-  // ── Bubble metrics ───────────────────────────────────────
-  let bubbleMetrics = { fontSize: 14, padV: 8, padH: 14 };
-  let currentBubbleH = 0;
+  // ── Walk target (for summon / autonomous movement) ──────
+  let walkTarget = null;       // { x, y } in screen coords, or null
+  let isWalking = false;
+  let walkSpeed = 80;          // pixels per second (default walk)
+  let runSpeed = 160;          // pixels per second (run)
 
-  // ── DOM references (set by app.js on boot) ───────────────
-  let canvas  = null;
-  let ctx     = null;
-  let overlay = null;
+  // ── Behavior state ──────────────────────────────────────
+  let wanderEnabled = true;    // autonomous wandering on/off
+  let behaviorState = 'idle';  // idle | walking | curious | happy | surprised
+
+  // ── DOM refs ────────────────────────────────────────────
+  let canvas = null;
+  let ctx = null;
   let bubbleEl = null;
 
-  // ── Exports ──────────────────────────────────────────────
+  // ── Exports ─────────────────────────────────────────────
   const M = {
     VERSION,
     config,
-    SIDE_PAD, GAP, BOTTOM_MARGIN, ARROW_H,
     TARGET,
+    ipc: ipcRenderer,
+    path,
+    fs,
 
-    // Getters/setters for shared state
+    // World position (screen coords) — getters/setters
+    get worldX() { return worldX; },
+    set worldX(v) { worldX = v; },
+    get worldY() { return worldY; },
+    set worldY(v) { worldY = v; },
+
+    // Window dimensions
     get petSize() { return petSize; },
     set petSize(v) { petSize = v; },
     get winW() { return winW; },
     set winW(v) { winW = v; },
     get winH() { return winH; },
     set winH(v) { winH = v; },
-    get petCX() { return petCX; },
-    set petCX(v) { petCX = v; },
-    get petCY() { return petCY; },
-    set petCY(v) { petCY = v; },
 
-    get bobOffset() { return bobOffset; },
-    set bobOffset(v) { bobOffset = v; },
-    get eyeOffsetX() { return eyeOffsetX; },
-    set eyeOffsetX(v) { eyeOffsetX = v; },
-    get eyeOffsetY() { return eyeOffsetY; },
-    set eyeOffsetY(v) { eyeOffsetY = v; },
-    get eyeOpen() { return eyeOpen; },
-    set eyeOpen(v) { eyeOpen = v; },
-    get lastBlink() { return lastBlink; },
-    set lastBlink(v) { lastBlink = v; },
-    get bubbleTimer() { return bubbleTimer; },
-    set bubbleTimer(v) { bubbleTimer = v; },
-    get workTimer() { return workTimer; },
-    set workTimer(v) { workTimer = v; },
+    // Window screen position (top-left)
+    get winScreenX() { return _winScreenX; },
+    set winScreenX(v) { _winScreenX = v; },
+    get winScreenY() { return _winScreenY; },
+    set winScreenY(v) { _winScreenY = v; },
 
-    get bubbleMetrics() { return bubbleMetrics; },
-    set bubbleMetrics(v) { bubbleMetrics = v; },
-    get currentBubbleH() { return currentBubbleH; },
-    set currentBubbleH(v) { currentBubbleH = v; },
+    // Delta time
+    get deltaTime() { return deltaTime; },
+    get lastFrameTime() { return lastFrameTime; },
+    set lastFrameTime(v) { lastFrameTime = v; },
 
+    // Activity tracking
+    get lastActivity() { return lastActivity; },
+    set lastActivity(v) { lastActivity = v; },
+
+    // Walk target & movement
+    get walkTarget() { return walkTarget; },
+    set walkTarget(v) { walkTarget = v; },
+    get isWalking() { return isWalking; },
+    set isWalking(v) { isWalking = v; },
+    get walkSpeed() { return walkSpeed; },
+    get runSpeed() { return runSpeed; },
+
+    // Behavior
+    get wanderEnabled() { return wanderEnabled; },
+    set wanderEnabled(v) { wanderEnabled = v; },
+    get behaviorState() { return behaviorState; },
+    set behaviorState(v) { behaviorState = v; },
+
+    // DOM
     get canvas() { return canvas; },
     set canvas(v) { canvas = v; },
     get ctx() { return ctx; },
     set ctx(v) { ctx = v; },
-    get overlay() { return overlay; },
-    set overlay(v) { overlay = v; },
     get bubbleEl() { return bubbleEl; },
     set bubbleEl(v) { bubbleEl = v; },
 
-    // External libs
-    ipc: ipcRenderer,
-    webUtils,
-    fs,
-    path,
-    http,
-
-    // Module placeholders
-    FSM: null,
-    Layout: null,
-    Bubble: null,
+    // Module placeholders (populated by loaded scripts)
+    EASING: null,
+    EXPRESSIONS: null,
+    Anim: null,
     Rendering: null,
-    Interaction: null,
+    Walk: null,
+    FSM: null,
+    AI: null,
+    Bubble: null,
     Audio: null,
     Particles: null,
-    _sleepPhase: 0,
+    Interaction: null,
+    EyeTracking: null,
   };
 
   window.Mimic = M;
-  console.log('[mimic] global namespace initialized v' + VERSION + ' (独立后)');
+  console.log('[mimic] v2.0 namespace initialized — world coordinate system active');
 
-  // ── Keyboard shortcuts ───────────────────────────────────
+  // ── Keyboard shortcuts ──────────────────────────────────
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
-
-    // Ctrl+Q → quit app
     if (mod && e.key === 'q') {
       e.preventDefault();
-      console.log('[mimic] Ctrl+Q → quit-app');
       ipcRenderer.send('quit-app');
-      return;
     }
-
-    // Ctrl+Shift+P → toggle passthrough (works when window has focus)
     if (mod && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
       e.preventDefault();
-      console.log('[mimic] Ctrl+Shift+P → toggle-passthrough');
       ipcRenderer.send('toggle-passthrough');
+    }
+    // Ctrl+W toggles autonomous wandering
+    if (mod && e.key === 'w') {
+      e.preventDefault();
+      M.wanderEnabled = !M.wanderEnabled;
+      console.log('[mimic] wander:', M.wanderEnabled ? 'ON' : 'OFF');
     }
   });
 })();

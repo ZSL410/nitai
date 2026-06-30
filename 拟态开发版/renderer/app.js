@@ -1,99 +1,130 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v1.0.0 — Desktop Pet Bootstrapper
-//  Articulated pixel character, eating animation, eye tracking,
-//  message queue, body-part click reactions, chat dialog,
-//  low-power idle mode (15fps after 30s inactivity).
-//  All coordinates from M.Layout.getPetBounds().
+//  Nitai v2.0 — Game Loop & Bootstrapper
+//
+//  This is the heartbeat of the pet. Each frame:
+//   1. Calculate delta time (frame-rate independent)
+//   2. Tick animation state (life-sense, lerps)
+//   3. Update walk controller (desktop movement)
+//   4. Update FSM (behavior state machine)
+//   5. Update AI (autonomous decisions)
+//   6. Update eye tracking (cursor following)
+//   7. Render character + particles
+//
+//  Paradigm: character has WORLD POSITION (screen coords).
+//  The window moves to follow. Character always centered.
 // ═══════════════════════════════════════════════════════════
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '2.0.0';
 
 ;(function () {
   const M = window.Mimic;
   M.VERSION = APP_VERSION;
 
-  // ── Bind DOM ─────────────────────────────────────────────
+  // ── Bind DOM ────────────────────────────────────────────
   M.canvas   = document.getElementById('pet-canvas');
   M.ctx      = M.canvas.getContext('2d');
-  M.overlay  = document.getElementById('overlay');
   M.bubbleEl = document.getElementById('bubble');
 
-  // ── Low-power idle mode state ────────────────────────────
-  M._idleFrameCounter = 0;
-  M._idleLowPower = false;          // true when running at 15fps
-  M._idleLowPowerThreshold = 30000; // 30s no mouse → drop to 15fps
-  M._idleLowPowerFps = 15;          // target fps in low-power mode
-  M._idleLowPowerSkip = Math.round(60 / 15); // skip every N frames (4)
+  // ── Init world position ─────────────────────────────────
+  // Get initial window position from main process via sync IPC
+  // We estimate until first window sync
+  function initWorldPosition() {
+    // Request initial window position
+    // For now, use reasonable defaults — will be corrected
+    // when first drag or walk happens
+    M.worldX = 800;  // center of a 1600-wide screen
+    M.worldY = 450;  // center-ish of a 900-tall screen
+    M.winScreenX = M.worldX - M.winW / 2;
+    M.winScreenY = M.worldY - M.winH / 2;
+  }
+  initWorldPosition();
 
-  // ── Animation loop ───────────────────────────────────────
-  function tick(now) {
-    // ══ STEP 0: Update animation state ONCE per frame ══
-    // tickAnim() advances _smoothBob and bodyScale lerps.
-    // This MUST happen before any getPetBounds() call, preventing
-    // compound-lerp when getPetBounds is called multiple times.
-    if (M.Layout && M.Layout.tickAnim) M.Layout.tickAnim();
+  // ── Game loop ───────────────────────────────────────────
 
-    // ══ STEP 1: Update FSM state machine ══
+  function gameLoop(now) {
+    // ── 1. Delta time ────────────────────────────────────
+    const dt = Math.min((now - M.lastFrameTime) / 1000, 0.1); // cap at 100ms
+    M.lastFrameTime = now;
+    M.deltaTime = dt;
+
+    // ── 2. Animation tick (life-sense, lerps) ─────────────
+    if (M.Anim && M.Anim.tick) M.Anim.tick(dt, now);
+
+    // ── 3. Walk controller update ─────────────────────────
+    if (M.Walk && M.Walk.update) M.Walk.update(dt);
+
+    // ── 4. FSM update ─────────────────────────────────────
     if (M.FSM) M.FSM.update(now);
 
-    // ══ STEP 2: Update eye tracking (reads getPetBounds, now cached) ══
-    if (M._updateEyeTracking) M._updateEyeTracking();
+    // ── 5. AI autonomous behavior update ──────────────────
+    if (M.AI && M.AI.update) M.AI.update(now);
 
-    // ══ STEP 3: Render (reads getPetBounds, now cached) ══
-    // Low-power idle mode: frame skipping
-    const idleTime = now - (M.lastActivity || now);
-    const isIdle = M.FSM && M.FSM.state === 'idle';
+    // ── 6. Eye tracking update ────────────────────────────
+    if (M.EyeTracking && M.EyeTracking.update) M.EyeTracking.update();
 
-    if (isIdle && idleTime >= M._idleLowPowerThreshold) {
-      // Enter low-power: draw at 15fps via frame counter skip
-      M._idleLowPower = true;
-      M._idleFrameCounter++;
-      if (M._idleFrameCounter >= M._idleLowPowerSkip) {
-        M._idleFrameCounter = 0;
-        if (M.Rendering && M.Rendering.draw) M.Rendering.draw();
-      }
-    } else {
-      // Full speed: draw every frame
-      if (M._idleLowPower) {
-        M._idleFrameCounter = 0;
-      }
-      M._idleLowPower = false;
-      if (M.Rendering && M.Rendering.draw) M.Rendering.draw();
-    }
+    // ── 7. Render ─────────────────────────────────────────
+    if (M.Rendering && M.Rendering.draw) M.Rendering.draw();
 
-    requestAnimationFrame(tick);
+    requestAnimationFrame(gameLoop);
   }
 
-  // ── Boot ─────────────────────────────────────────────────
+  // ── Boot ────────────────────────────────────────────────
+
   function boot() {
-    console.log('========================================');
-    console.log('  拟态 Desktop Pet  v' + APP_VERSION + '  started');
-    console.log('  Character: articulated pixel humanoid (16×20 grid)');
-    console.log('  Features: eating anim | eye tracking | click react | chat | yawn');
-    console.log('  States: idle | working | happy | surprised | alert');
-    console.log('  Coords: M.Layout.getPetBounds() — single source of truth');
-    console.log('  Low-power: 15fps after 30s idle | click-to-react | eye-follow');
-    console.log('  Target dir:', M.TARGET);
-    console.log('  Backend API:', M.config.apiEnabled ? M.config.backendUrl : 'disabled');
-    console.log('========================================');
+    console.log('══════════════════════════════════════════');
+    console.log('  拟态 Nitai v' + APP_VERSION);
+    console.log('  Desktop is the territory.');
+    console.log('  Walk | Wander | Summon | Interact');
+    console.log('  World-coordinate system active');
+    console.log('══════════════════════════════════════════');
 
-    // Init layout + default size
-    M.Layout.applySize(80);
-
-    // Setup interactions
-    if (M.Interaction) {
-      M.Interaction.setupDrag();
-      M.Interaction.setupContextMenu();
-      M.Interaction.setupDrop();
-      M.Interaction.setupEyeTracking();
-      M.Interaction.setupClickReactions();
-      M.Interaction.setupChat();
-      M.Interaction.setupMusicDetect();
+    // Init layout (default size 80)
+    if (M.Rendering && M.Rendering.updateLayout) {
+      M.Rendering.updateLayout(0);
+    }
+    if (M.Rendering && M.Rendering.applySize) {
+      M.Rendering.applySize(M.config.defaultSize || 80);
     }
 
-    // Start animation
-    requestAnimationFrame(tick);
+    // Set up all interactions
+    if (M.Interaction) {
+      if (M.Interaction.setupDrag) M.Interaction.setupDrag();
+      if (M.Interaction.setupContextMenu) M.Interaction.setupContextMenu();
+      if (M.Interaction.setupDrop) M.Interaction.setupDrop();
+      if (M.Interaction.setupEyeTracking) M.Interaction.setupEyeTracking();
+      if (M.Interaction.setupClickReactions) M.Interaction.setupClickReactions();
+      if (M.Interaction.setupChat) M.Interaction.setupChat();
+      if (M.Interaction.setupMusicDetect) M.Interaction.setupMusicDetect();
+    }
+
+    // Init AI controller
+    if (M.AI && M.AI.init) M.AI.init();
+
+    // Welcome bubble
+    if (M.Bubble) {
+      M.Bubble.show('你好！我是拟态~ 👋\n右键菜单可以召唤我！', {
+        duration: 3000,
+      });
+    }
+
+    // Initialize FSM to idle
+    if (M.FSM) M.FSM.transitionTo('idle');
+
+    // Start game loop
+    requestAnimationFrame(gameLoop);
+
+    console.log('[app] v' + APP_VERSION + ' booted — game loop running');
   }
+
+  // ── Window position sync ────────────────────────────────
+  // Periodically verify window position with main process
+  // This corrects any drift between world coords and actual window pos
+  setInterval(() => {
+    if (M.Walk && !M.Walk.hasTarget && !M.isWalking) {
+      // Only sync when not actively moving
+      M.Walk.syncWindowToWorld();
+    }
+  }, 5000);
 
   boot();
 })();

@@ -1,6 +1,6 @@
 {
   "name": "pixel-desktop-pet",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A pixel-style desktop pet using Electron (transparent, frameless, always-on-top)",
   "main": "main.js",
   "scripts": {

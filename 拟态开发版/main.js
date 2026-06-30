@@ -1,58 +1,64 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic — Desktop Pet 主进程入口
-//  Version: v1.0.0 — independent repo, coordinate system refactored
+//  Nitai v2.0 — Desktop Pet 主进程入口
 //
-//  Boot sequence: config → window → tray → IPC → global shortcuts
-//  All sub-modules live in main/ directory.
+//  Paradigm shift: the pet window MOVES across the desktop
+//  as the character walks. No longer a static overlay.
+//
+//  Features:
+//   - Desktop roaming (autonomous wandering)
+//   - Summon mode (click anywhere → pet walks there)
+//   - Step-by-step movement (no teleporting)
+//   - Always-on-top transparent overlay
 // ═══════════════════════════════════════════════════════════
 
 const { app, globalShortcut } = require('electron');
 const { loadConfig, getConfig } = require('./main/config');
-const { createWindow, getWindow, setPassthrough, isPassthrough } = require('./main/window');
-const { createTray } = require('./main/tray');
+const {
+  createPetWindow, getPetWindow,
+  setPassthrough, isPassthrough,
+} = require('./main/window');
+const { createTray, refreshTrayMenu } = require('./main/tray');
 const { registerIpcHandlers } = require('./main/ipc-handlers');
-const { refreshTrayMenu } = require('./main/tray');
 const { startDetector, stopDetector } = require('./main/music-detector');
 
 app.whenReady().then(() => {
   // 1. Load configuration
   const config = loadConfig();
 
-  // 2. Create the transparent desktop pet window
-  const win = createWindow();
+  // 2. Create the pet window (small, movable, transparent)
+  const win = createPetWindow();
 
   // 3. Set up system tray
   createTray(win);
 
-  // 4. Register all IPC handlers
+  // 4. Register all IPC handlers (v2.0: walk, summon, wander)
   registerIpcHandlers();
 
-  // 5. Apply passthrough from config (if enabled)
+  // 5. Apply passthrough from config
   if (config.passthrough) {
     setPassthrough(true);
     refreshTrayMenu(win);
   }
 
-  // 6. Register global shortcut: Ctrl+Shift+P toggles passthrough
+  // 6. Global shortcut: Ctrl+Shift+P toggles passthrough
   globalShortcut.register('CmdOrCtrl+Shift+P', () => {
     const next = !isPassthrough();
     setPassthrough(next);
-    refreshTrayMenu(getWindow());
-    console.log('[main] global shortcut: passthrough →', next ? 'ON' : 'OFF');
+    refreshTrayMenu(getPetWindow());
+    console.log('[main] passthrough →', next ? 'ON' : 'OFF');
   });
 
   // 7. Start music player detector
   startDetector(win);
 
-  console.log('[main] 拟态 Desktop Pet ready');
+  console.log('[main] 拟态 v2.0 Desktop Pet ready — desktop is the territory');
 });
 
 app.on('window-all-closed', () => {
-  // Don't quit — close is intercepted, window just hides
+  // Don't quit — close is intercepted, window hides to tray
 });
 
 app.on('will-quit', () => {
-  // Clean up global shortcuts and detector
   globalShortcut.unregisterAll();
   stopDetector();
 });

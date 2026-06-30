@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v1.0.0 — Body Part Click Reactions
+//  Nitai v2.0 — Click Reactions
 //
-//  Click head → happy state (bounce + smile) → 1.5s → idle
-//  Click body → surprised state (wide eyes + open mouth) → 1.5s → idle
-//  Double-click → spin + spark particles + 2.5s happy
-//  Hit testing uses M.Layout.getPetBounds() — single source of truth.
+//  Click head → happy (bounce + smile)
+//  Click body → surprised (jump + wide eyes)
+//  Double-click → excited (sparkle + spin)
+//  Triple-click → summon mode
 // ═══════════════════════════════════════════════════════════
 
 ;(function () {
@@ -28,76 +28,53 @@
       }
       lastClickTime = now;
 
-      const part = hitTest(e.offsetX, e.offsetY);
-      const A = M.Anim;
+      const part = M.Rendering ? M.Rendering.hitTest(e.offsetX, e.offsetY) : 'other';
+
+      if (clickCount >= 3) {
+        handleTripleClick();
+        return;
+      }
 
       if (clickCount >= 2) {
-        handleDoubleClick(A);
+        handleDoubleClick();
         return;
       }
 
       switch (part) {
-        case 'head':
-          handleHeadClick(A);
-          break;
-        case 'body':
-          handleBodyClick(A);
-          break;
-        default:
-          handleBoop(A);
+        case 'head': handleHeadClick(); break;
+        case 'body': handleBodyClick(); break;
+        default:    handleBoop();
       }
     });
-
-    console.log('[click v1.0.0] hit-test from getPetBounds()');
   }
 
-  // ── Hit testing (uses getPetBounds for single source of truth) ──
+  function handleHeadClick() {
+    M.Anim.headTilt = -0.6;
+    setTimeout(() => { M.Anim.headTilt = 0; }, 400);
+    M.Anim.bobOffset = -4;
+    setTimeout(() => { M.Anim.bobOffset = 0; }, 200);
 
-  function hitTest(canvasX, canvasY) {
-    const B = M.Layout.getPetBounds();
-
-    // Convert canvas coords to grid coords
-    const col = (canvasX - B.gx) / B.cellSize;
-    const row = (canvasY - B.gy) / B.cellSize;
-
-    // Head region: cols 4-11, rows 0-6
-    if (col >= 4 && col <= 11 && row >= 0 && row <= 6) return 'head';
-    // Body region: cols 5-10, rows 7-13
-    if (col >= 5 && col <= 10 && row >= 7 && row <= 13) return 'body';
-
-    return 'other';
-  }
-
-  // ── Reactions ─────────────────────────────────────────────
-
-  function handleHeadClick(A) {
-    // Smile + head tilt
-    A.headTilt = -0.6;
-    setTimeout(() => { A.headTilt = 0; }, 400);
-    // Small bounce
-    A.bobOffset = -4;
-    setTimeout(() => { A.bobOffset = 0; }, 200);
-    // Audio + note particles
     if (M.Audio) M.Audio.play('chirp');
     if (M.Particles) M.Particles.burst('note', 3, { x: 8, y: 3 });
-    // Blush
-    M.Bubble.show('好痒~  (*/ω＼*)', { duration: 1500, thought: false });
-    // Briefly change to happy
+    if (M.Bubble) M.Bubble.show('好痒~  (*/ω＼*)', { duration: 1500 });
+
     if (M.FSM.state === 'idle') {
       M.FSM.transitionTo('happy');
-      setTimeout(() => { if (M.FSM.state === 'happy') M.FSM.transitionTo('idle'); }, 1500);
+      setTimeout(() => {
+        if (M.FSM.state === 'happy') M.FSM.transitionTo('idle');
+      }, 1500);
     }
   }
 
-  function handleBodyClick(A) {
-    // v3.7.1: body click → surprised state (wide eyes + open mouth)
-    A.bobOffset = -4;
-    A.bodySquash = -0.1;
-    setTimeout(() => { A.bobOffset = 0; A.bodySquash = 0; }, 300);
+  function handleBodyClick() {
+    M.Anim.bobOffset = -4;
+    M.Anim.bodySquash = -0.1;
+    setTimeout(() => { M.Anim.bobOffset = 0; M.Anim.bodySquash = 0; }, 300);
+
     if (M.Audio) M.Audio.play('boing');
     if (M.Particles) M.Particles.burst('spark', 4, { x: 8, y: 7 });
-    M.Bubble.show('嘿！别戳我肚子！', { duration: 1500, thought: false });
-    // Transition to surprised, auto-recover after 1.5s
+    if (M.Bubble) M.Bubble.show('嘿！别戳我肚子！', { duration: 1500 });
+
     if (M.FSM.state === 'idle') {
       M.FSM.transitionTo('surprised');
       setTimeout(() => {
@@ -106,28 +83,38 @@
     }
   }
 
-  function handleDoubleClick(A) {
-    // Exaggerated bounce + sparkle
-    A.bobOffset = -12;
-    A.bodySquash = -0.2;
-    A.rightArm = { dx: 2, dy: -5 };
+  function handleDoubleClick() {
+    M.Anim.bobOffset = -12;
+    M.Anim.bodySquash = -0.2;
+    M.Anim.rightArm = { dx: 2, dy: -5 };
     setTimeout(() => {
-      A.bobOffset = 0;
-      A.bodySquash = 0;
-      A.rightArm = { dx: 0, dy: 0 };
+      M.Anim.bobOffset = 0;
+      M.Anim.bodySquash = 0;
+      M.Anim.rightArm = { dx: 0, dy: 0 };
     }, 500);
+
     if (M.Audio) M.Audio.play('boing');
     if (M.Particles) M.Particles.burst('spark', 10, { x: 8, y: 6 });
-    M.Bubble.show('(*´▽`*) 你戳我干嘛~', { duration: 2000, thought: false });
+    if (M.Bubble) M.Bubble.show('(*´▽`*) 你戳我干嘛~', { duration: 2000 });
+
     M.FSM.transitionTo('happy');
-    setTimeout(() => { if (M.FSM.state === 'happy') M.FSM.transitionTo('idle'); }, 2500);
+    setTimeout(() => {
+      if (M.FSM.state === 'happy') M.FSM.transitionTo('idle');
+    }, 2500);
   }
 
-  function handleBoop(A) {
-    A.bobOffset = -2;
-    setTimeout(() => { A.bobOffset = 0; }, 150);
+  function handleTripleClick() {
+    // Summon mode: click anywhere on desktop → pet walks there
+    if (M.Bubble) M.Bubble.show('🔮 点一下你想让我去的地方~', { duration: 2000 });
+    M.ipc.send('start-summon');
+  }
+
+  function handleBoop() {
+    M.Anim.bobOffset = -2;
+    setTimeout(() => { M.Anim.bobOffset = 0; }, 150);
   }
 
   M.Interaction = M.Interaction || {};
   M.Interaction.setupClickReactions = setupClickReactions;
+  console.log('[click] v2.0 — hit-test + triple-click summon');
 })();

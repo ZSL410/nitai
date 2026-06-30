@@ -1,36 +1,29 @@
 // ═══════════════════════════════════════════════════════════
-//  Mimic v1.0.0 — Speech Bubble (message queue, mouth positioning)
+//  Nitai v2.0 — Speech Bubble
 //
-//  • Messages queued, shown sequentially
-//  • Bubble positioned above character MOUTH (from getPetBounds())
-//  • Tail arrow points down toward the mouth
-//  • Thought bubble variant
+//  Message queue with mouth positioning.
+//  Shows text/thought bubbles above character.
 // ═══════════════════════════════════════════════════════════
 
 ;(function () {
   const M = window.Mimic;
 
-  // Signal layout.js not to override bubble positioning
-  M._bubbleManaged = true;
-
   const queue = [];
   let active = null;
   let hideTimer = null;
-  let thoughtDots = null;
-  let thoughtInterval = null;
 
   const MIN_DISPLAY = 1800;
   const PER_CHAR_TIME = 50;
-  const MOUTH_GAP = 14;  // px between mouth top and bubble bottom
 
-  // ── Show bubble (queued) ─────────────────────────────────
-
-  function show(text, options) {
-    const opts = options || {};
+  /**
+   * Show a speech/thought bubble (queued).
+   * @param {string} text - Text to display
+   * @param {object} opts - { duration, thought, kaomoji }
+   */
+  function show(text, opts = {}) {
     const duration = opts.duration || 0;
     const kaomoji = opts.kaomoji || null;
     const thought = opts.thought || false;
-
     const fullText = kaomoji ? kaomoji + ' ' + text : text;
 
     // Deduplicate
@@ -39,21 +32,18 @@
 
     queue.push({ text: fullText, duration, thought });
     if (queue.length > 8) queue.shift();
-
     processQueue();
   }
 
-  function showImmediate(text, options) {
+  function showImmediate(text, opts = {}) {
     clearActive();
     queue.length = 0;
-    queue.push({ text: text, duration: (options && options.duration) || 2000, thought: false });
+    queue.push({ text, duration: opts.duration || 2000, thought: false });
     processQueue();
   }
 
   function clearActive() {
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-    if (thoughtInterval) { clearInterval(thoughtInterval); thoughtInterval = null; }
-    if (thoughtDots) { thoughtDots.remove(); thoughtDots = null; }
     const el = M.bubbleEl;
     if (el) { el.classList.remove('on'); el.textContent = ''; }
     active = null;
@@ -75,14 +65,10 @@
 
     el.textContent = msg.text;
 
-    // Position bubble ABOVE the character's mouth, with generous gap
-    positionBubbleAtMouth(el);
+    // Position above character mouth
+    positionBubble(el);
 
     el.classList.add('on');
-
-    if (msg.thought && !thoughtDots) {
-      startThoughtDots(el);
-    }
 
     const autoDuration = Math.max(MIN_DISPLAY, msg.text.length * PER_CHAR_TIME);
     const duration = msg.duration > 0 ? msg.duration : autoDuration;
@@ -90,137 +76,94 @@
     hideTimer = setTimeout(() => {
       el.classList.remove('on');
       clearActive();
-      M.Layout.updateWindowSizeAndLayout(null);
       setTimeout(() => { active = null; processQueue(); }, 250);
     }, duration);
   }
 
-  // ── Position bubble above character mouth (from getPetBounds) ──
+  function positionBubble(el) {
+    const mouthPos = M._mouthCanvasPos || { x: M.winW / 2, y: M.winH * 0.35 };
+    const fontSize = Math.max(8, Math.min(16, Math.round(M.petSize * 0.15)));
+    const padV = Math.max(3, Math.round(fontSize * 0.55));
+    const padH = Math.max(5, Math.round(fontSize * 0.9));
 
-  function positionBubbleAtMouth(el) {
-    // Use getPetBounds() as single source of truth
-    // Position bubble ABOVE the character's head top, not over the face
-    let headTop, mouthX;
-    if (M.Layout && M.Layout.getPetBounds) {
-      const B = M.Layout.getPetBounds();
-      headTop = B.headTop;
-      mouthX = B.mouthX;
-    } else {
-      // Fallback (should not normally be reached)
-      headTop = M.petCY - M.petSize * 0.5;
-      mouthX = M.petCX;
-    }
-
-    // Styling
-    const metrics = M.bubbleMetrics;
-    el.style.fontSize   = (metrics.fontSize || 13) + 'px';
-    el.style.padding    = (metrics.padV || 6) + 'px ' + (metrics.padH || 12) + 'px';
-    el.style.maxWidth   = Math.round(M.winW * 0.85) + 'px';
+    el.style.fontSize = fontSize + 'px';
+    el.style.padding = padV + 'px ' + padH + 'px';
+    el.style.maxWidth = Math.round(M.winW * 0.85) + 'px';
     el.style.whiteSpace = 'normal';
-    el.style.wordWrap   = 'break-word';
-    el.style.position   = 'absolute';
-
-    // Horizontal centering
+    el.style.wordWrap = 'break-word';
+    el.style.position = 'absolute';
     el.style.left = '50%';
     el.style.transform = 'translateX(-50%)';
 
-    // Vertical: bubble sits ABOVE the character's head top
-    // The arrow (::after pseudo-element) points down toward the head
     const bubbleH = el.offsetHeight || 40;
-    el.style.top = Math.max(2, headTop - bubbleH - MOUTH_GAP) + 'px';
+    el.style.top = Math.max(2, mouthPos.y - bubbleH - 14) + 'px';
 
-    // Update window size to accommodate the bubble
-    M.Layout.updateWindowSizeAndLayout(el.textContent);
+    // Update window layout if needed
+    updateWindowForBubble(el.textContent);
   }
 
-  // ── Thought dots ──────────────────────────────────────────
+  function updateWindowForBubble(text) {
+    if (!M.Rendering || !M.Rendering.updateLayout) return;
+    const fontSize = Math.max(8, Math.min(16, Math.round(M.petSize * 0.15)));
+    const padV = Math.max(3, Math.round(fontSize * 0.55));
+    const m = document.createElement('div');
+    m.style.cssText = 'position:absolute;visibility:hidden;font-family:sans-serif;' +
+      'font-size:' + fontSize + 'px;padding:' + padV + 'px;' +
+      'max-width:' + Math.round(M.winW * 0.8) + 'px;white-space:normal;';
+    m.textContent = text;
+    document.body.appendChild(m);
+    const h = m.offsetHeight;
+    document.body.removeChild(m);
 
-  function startThoughtDots(bubbleEl) {
-    thoughtDots = document.createElement('div');
-    thoughtDots.className = 'thought-dots';
-    thoughtDots.style.cssText = `
-      position: absolute;
-      pointer-events: none;
-      z-index: 11;
-      font-size: 20px;
-      color: #aaa;
-      letter-spacing: 2px;
-    `;
-    // Position dots above the bubble
-    const bubbleTop = parseFloat(bubbleEl.style.top) || 0;
-    thoughtDots.style.top  = Math.max(0, bubbleTop - 22) + 'px';
-    thoughtDots.style.left = '50%';
-    thoughtDots.style.transform = 'translateX(-50%)';
-    thoughtDots.textContent = '…';
-    bubbleEl.parentNode.appendChild(thoughtDots);
-
-    let dots = 0;
-    thoughtInterval = setInterval(() => {
-      dots = (dots + 1) % 4;
-      if (thoughtDots) thoughtDots.textContent = '.'.repeat(dots || 1);
-    }, 400);
+    // overhead = bubbleH + arrowGap(6) + gap(5) ≈ bubbleH + 11
+    M.Rendering.updateLayout(h > 0 ? h + 11 : 0);
   }
 
   function hide() {
     clearActive();
     queue.length = 0;
-    M.Layout.updateWindowSizeAndLayout(null);
+    if (M.Rendering && M.Rendering.updateLayout) {
+      M.Rendering.updateLayout(0);
+    }
   }
 
-  // ── Progress bar (file copy) ──────────────────────────────
+  function isVisible() {
+    return active !== null;
+  }
+
+  // ── Progress bar (for file copy) ────────────────────────
 
   function showProgress(text, fraction) {
     const el = M.bubbleEl;
     if (!el) return;
 
     if (!active || active.text !== text) {
-      // New message
       clearActive();
       active = { text, duration: 0, thought: false };
       el.textContent = text;
-      positionBubbleAtMouth(el);
+      positionBubble(el);
       el.classList.add('on');
     }
 
-    // Ensure progress bar exists
     let bar = el.querySelector('.nom-progress');
     if (!bar) {
       bar = document.createElement('div');
       bar.className = 'nom-progress';
-      bar.style.cssText = `
-        height: 4px;
-        background: #eee;
-        border-radius: 2px;
-        margin-top: 5px;
-        overflow: hidden;
-      `;
+      bar.style.cssText = 'height:4px;background:#eee;border-radius:2px;margin-top:5px;overflow:hidden;';
       const fill = document.createElement('div');
       fill.className = 'nom-progress-fill';
-      fill.style.cssText = `
-        height: 100%;
-        background: #FFB347;
-        border-radius: 2px;
-        transition: width 0.2s ease;
-      `;
+      fill.style.cssText = 'height:100%;background:#FFB347;border-radius:2px;transition:width 0.2s ease;';
       bar.appendChild(fill);
       el.appendChild(bar);
     }
-
     const fill = bar.querySelector('.nom-progress-fill');
     if (fill) fill.style.width = Math.round(Math.max(0, Math.min(1, fraction)) * 100) + '%';
-
-    positionBubbleAtMouth(el);
+    positionBubble(el);
   }
 
-  // ── Export ────────────────────────────────────────────────
+  // ── Export ──────────────────────────────────────────────
 
-  M.Bubble = {
-    show,
-    showImmediate,
-    showProgress,
-    hide,
-    positionAtMouth: positionBubbleAtMouth,
-  };
+  M.Bubble = { show, showImmediate, showProgress, hide, isVisible };
 
-  console.log('[bubble v1.0.0] message queue + mouth-gap=' + MOUTH_GAP + 'px (from getPetBounds)');
+  console.log('[bubble] v2.0 — message queue + mouth positioning loaded');
 })();
