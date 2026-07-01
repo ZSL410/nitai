@@ -2,7 +2,7 @@
   "name": "pixel-desktop-pet",
   "version": "2.0.0",
   "description": "A pixel-style desktop pet using Electron (transparent, frameless, always-on-top)",
-  "main": "main.js",
+  "main": "main/main.js",
   "scripts": {
     "start": "electron .",
     "start:wsl": "LD_LIBRARY_PATH=./electron-libs electron . --no-sandbox --disable-gpu --no-zygote"

@@ -12,14 +12,14 @@
 // ═══════════════════════════════════════════════════════════
 
 const { app, globalShortcut } = require('electron');
-const { loadConfig, getConfig } = require('./main/config');
+const { loadConfig, getConfig } = require('./config');
 const {
   createPetWindow, getPetWindow,
   setPassthrough, isPassthrough,
-} = require('./main/window');
-const { createTray, refreshTrayMenu } = require('./main/tray');
-const { registerIpcHandlers } = require('./main/ipc-handlers');
-const { startDetector, stopDetector } = require('./main/music-detector');
+} = require('./window');
+const { createTray, refreshTrayMenu } = require('./tray');
+const { registerIpcHandlers } = require('./ipc-handlers');
+const { startDetector, stopDetector } = require('./music-detector');
 
 app.whenReady().then(() => {
   // 1. Load configuration
